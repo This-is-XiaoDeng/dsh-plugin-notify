@@ -123,12 +123,23 @@ appToken 输入框每次加载都是空的——宿主只报告「是否已设�
 
 ### 测试
 
-**发送测试通知** 会给每个已连接页面广播一帧，并推一条 WxPusher 消息，然后把两条通道的结果都报出来：
+两张卡片各自带一个测试按钮，不会再分不清测的是哪条通道：
+
+| 卡片 | 按钮 | 行为 |
+|---|---|---|
+| **浏览器通知** | *发送测试通知* | 给每个已连接页面广播一帧，**并**推一条 WxPusher 消息——整条链路都测。 |
+| **WxPusher 推送** | *发送测试推送* | 只推 WxPusher，不弹系统通知；`wxpusher.enabled` 还关着时也能用，方便先验证凭据再开通道。 |
+
+各自在按钮下面报自己的结果：
 
 ```
 浏览器：1 个页面收到 · WxPusher：已发送
-浏览器：没有已连接的页面（浏览器通知可能已关闭） · WxPusher：未填写 appToken
+WxPusher：未填写 appToken
+WxPusher：被拒绝（appToken不正确）
+浏览器：没有已连接的页面（浏览器通知可能已关闭） · WxPusher：未填写 UID 或主题 ID
 ```
+
+两个按钮打的是同一个端点，只是带了不同的 `channel` 选择器——见下文。
 
 ## 实现方式
 
@@ -158,7 +169,7 @@ approval/request   ─┘                └─► GET /dsh-plugin-notify/events
 | 方法 | 路径 | 用途 |
 |---|---|---|
 | `GET` | `/dsh-plugin-notify/events` | 通知帧的 Server-Sent Events 流。 |
-| `POST` | `/dsh-plugin-notify/test` | 广播一帧测试通知并推送，返回两条通道的结果。 |
+| `POST` | `/dsh-plugin-notify/test` | 探测通知链路。`?channel=browser` 只广播不推送，`?channel=wxpusher` 只推送不广播，不带则两者都做。返回 `{ ok, channel, browser, wxpusher }`，没被要求的那条通道报 `skipped`。 |
 
 ## 已知限制
 

@@ -123,12 +123,23 @@ The page shows the current `Notification.permission`. If it is `default`, press 
 
 ### Test
 
-**Send a test notification** broadcasts a frame to every connected page and pushes one WxPusher message, then reports both outcomes:
+Each channel card owns its own test button, so a test never leaves you guessing which card it belongs to:
+
+| Card | Button | What it does |
+|---|---|---|
+| **Browser notifications** | *Send a test notification* | Broadcasts a frame to every connected page **and** pushes one WxPusher message — a full-stack probe. |
+| **WxPusher push** | *Send a test push* | Pushes one WxPusher message only. It raises no system notification, and it works while `wxpusher.enabled` is still off, so credentials can be verified before switching the channel on. |
+
+Each button reports its own outcome underneath:
 
 ```
 Browser: delivered to 1 page(s) · WxPusher: sent
-Browser: no connected page (browser notifications may be off) · WxPusher: no appToken
+WxPusher: no appToken
+WxPusher: refused (appToken不正确)
+Browser: no connected page (browser notifications may be off) · WxPusher: no UID or topic id
 ```
+
+The buttons call the same endpoint with a `channel` selector — see below.
 
 ## How it works
 
@@ -158,7 +169,7 @@ approval/request   ─┘                    └─► GET /dsh-plugin-notify/ev
 | Method | Path | Purpose |
 |---|---|---|
 | `GET` | `/dsh-plugin-notify/events` | Server-Sent Events stream of notification frames. |
-| `POST` | `/dsh-plugin-notify/test` | Broadcast one test frame and push it; answers with both channel outcomes. |
+| `POST` | `/dsh-plugin-notify/test` | Probe the notification path. `?channel=browser` broadcasts without pushing, `?channel=wxpusher` pushes without broadcasting, and omitting it does both. Answers with `{ ok, channel, browser, wxpusher }`, where the channel that was not asked for reports `skipped`. |
 
 ## Known limitations
 

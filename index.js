@@ -530,27 +530,41 @@ export function apply(ctx, config) {
 		});
 	}
 
-	/** Broadcast a test frame and push it, reporting both channel outcomes. */
+	/**
+	 * Broadcast a test frame and/or push one, reporting each channel outcome.
+	 *
+	 * `?channel=browser|wxpusher` narrows the probe to one channel, so the
+	 * WxPusher card can verify its own credentials without raising a system
+	 * notification. Anything else exercises both.
+	 */
 	async function handleTest(req, res) {
 		if (req.method !== 'POST') {
 			res.writeHead(405, { allow: 'POST' });
 			res.end();
 			return;
 		}
+		const requested = new URL(req.url ?? ROUTE_TEST, 'http://dsh.invalid').searchParams.get('channel');
+		const channel = requested === 'browser' || requested === 'wxpusher' ? requested : 'all';
 		const current = settings();
 		const frame = buildFrame('test', undefined, 'dsh-plugin-notify test notification', {
 			browser: { enabled: true, onlyWhenHidden: false },
 		});
-		if (current.browser.enabled) broadcast(frame);
-		const report = await pushWxPusher(frame, { force: true });
+		const report = { ok: true, channel };
+		if (channel !== 'wxpusher') {
+			if (current.browser.enabled) broadcast(frame);
+			report.browser = { delivered: current.browser.enabled && clients.size > 0, subscribers: clients.size };
+		} else {
+			report.browser = { skipped: true };
+		}
+		if (channel !== 'browser') {
+			// `force` bypasses `wxpusher.enabled`, so credentials can be
+			// verified before the channel is switched on.
+			report.wxpusher = await pushWxPusher(frame, { force: true });
+		} else {
+			report.wxpusher = { status: 'skipped' };
+		}
 		res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
-		res.end(
-			JSON.stringify({
-				ok: true,
-				browser: { delivered: current.browser.enabled && clients.size > 0, subscribers: clients.size },
-				wxpusher: report,
-			}),
-		);
+		res.end(JSON.stringify(report));
 	}
 
 	ctx.inject(['webServer'], (webCtx) => {

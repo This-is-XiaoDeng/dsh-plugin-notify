@@ -80,6 +80,9 @@ window.__ModuleLoader__.load({
 			wxpusherTopicsHint: '每行一个数字',
 			wxpusherUrl: '点击跳转 URL',
 			wxpusherUrlHint: '可选；推送被点击时打开',
+			wxpusherTest: '发送测试推送',
+			wxpusherTestHint: '只走 WxPusher，不弹浏览器通知；通道未启用时也能验证凭据',
+			testSkipped: '已跳过',
 			advancedTitle: '高级',
 			stopDebounce: '停止去抖 (ms)',
 			stopDebounceHint: '进入空闲后等待这么久，再判定为「已停止」',
@@ -162,6 +165,9 @@ window.__ModuleLoader__.load({
 			wxpusherTopicsHint: 'One number per line',
 			wxpusherUrl: 'Click-through URL',
 			wxpusherUrlHint: 'Optional; opened when the push is tapped',
+			wxpusherTest: 'Send a test push',
+			wxpusherTestHint: 'WxPusher only — no browser notification; verifies credentials even while the channel is off',
+			testSkipped: 'skipped',
 			advancedTitle: 'Advanced',
 			stopDebounce: 'Stop debounce (ms)',
 			stopDebounceHint: 'Wait this long after going idle before reporting a stop',
@@ -575,7 +581,7 @@ window.__ModuleLoader__.load({
 					(secret) => secret.path.length === 2 && secret.path[0] === 'wxpusher' && secret.path[1] === 'appToken' && secret.set === true,
 				);
 
-				const [testing, setTesting] = React.useState(false);
+				const [testing, setTesting] = React.useState(null);
 				const [testResult, setTestResult] = React.useState(null);
 				const [permission, setPermission] = React.useState(
 					typeof Notification === 'undefined' ? 'unsupported' : Notification.permission,
@@ -602,17 +608,23 @@ window.__ModuleLoader__.load({
 					);
 				};
 
-				const runTest = async () => {
-					setTesting(true);
+				/**
+				 * Run one test probe.
+				 *
+				 * @param channel - `all`, `browser`, or `wxpusher`; the Host
+				 *   narrows the probe to that channel.
+				 */
+				const runTest = async (channel) => {
+					setTesting(channel);
 					setTestResult(null);
 					try {
-						const response = await fetch(TEST_ROUTE, { method: 'POST', credentials: 'same-origin' });
+						const response = await fetch(`${TEST_ROUTE}?channel=${channel}`, { method: 'POST', credentials: 'same-origin' });
 						const payload = await response.json();
-						setTestResult({ ok: true, payload });
+						setTestResult({ ok: true, channel, payload });
 					} catch (error) {
-						setTestResult({ ok: false, message: String(error?.message ?? error) });
+						setTestResult({ ok: false, channel, message: String(error?.message ?? error) });
 					}
-					setTesting(false);
+					setTesting(null);
 				};
 
 				const requestPermission = () => {
@@ -715,16 +727,20 @@ window.__ModuleLoader__.load({
 							),
 							React.createElement(
 								Row,
-								{ key: 'test', label: t('test'), hint: testResult === null ? undefined : renderTestResult(t, testResult) },
+								{
+									key: 'test',
+									label: t('test'),
+									hint: testResult === null || testResult.channel !== 'all' ? undefined : renderTestResult(t, testResult),
+								},
 								React.createElement(
 									'button',
 									{
 										type: 'button',
 										className: 'dsh-notify-button dsh-notify-buttonPrimary',
-										disabled: testing,
-										onClick: runTest,
+										disabled: testing !== null,
+										onClick: () => runTest('all'),
 									},
-									testing ? t('testing') : t('test'),
+									testing === 'all' ? t('testing') : t('test'),
 								),
 							),
 						),
@@ -800,6 +816,27 @@ window.__ModuleLoader__.load({
 									onCommit: (text) => commit(['wxpusher', 'url'], text.trim()),
 								}),
 							),
+							React.createElement(
+								Row,
+								{
+									key: 'wx-test',
+									label: t('wxpusherTest'),
+									hint:
+										testResult !== null && testResult.channel === 'wxpusher'
+											? renderTestResult(t, testResult)
+											: t('wxpusherTestHint'),
+								},
+								React.createElement(
+									'button',
+									{
+										type: 'button',
+										className: 'dsh-notify-button dsh-notify-buttonPrimary',
+										disabled: testing !== null,
+										onClick: () => runTest('wxpusher'),
+									},
+									testing === 'wxpusher' ? t('testing') : t('wxpusherTest'),
+								),
+							),
 						),
 					);
 
@@ -855,23 +892,39 @@ window.__ModuleLoader__.load({
 		}
 
 		/** Render the test endpoint's answer as one line of text. */
+		/**
+		 * Render one test answer as a single line.
+		 *
+		 * @param t - Locale binding for this plugin's namespace.
+		 * @param result - `{ ok, channel, payload }` or `{ ok: false, message }`.
+		 * @returns The line to show next to the button that produced it.
+		 */
 		function renderTestResult(t, result) {
 			if (result.ok !== true) return t('testFailed', { message: result.message ?? '' });
 			const payload = result.payload ?? {};
-			const browserLine = payload.browser?.delivered === true ? t('testBrowserYes', { n: String(payload.browser.subscribers ?? 0) }) : t('testBrowserNo');
+			const browserLine =
+				payload.browser?.delivered === true
+					? t('testBrowserYes', { n: String(payload.browser.subscribers ?? 0) })
+					: payload.browser?.skipped === true
+						? t('testSkipped')
+						: t('testBrowserNo');
 			const status = payload.wxpusher?.status;
 			const wxLine =
 				status === 'sent'
 					? t('testWxSent')
-					: status === 'disabled'
-						? t('testWxDisabled')
-						: status === 'no-token'
-							? t('testWxNoToken')
-							: status === 'no-receiver'
-								? t('testWxNoReceiver')
-								: status === 'failed'
-									? t('testWxFailed', { message: payload.wxpusher?.message ?? '' })
-									: t('testWxError', { message: payload.wxpusher?.message ?? '' });
+					: status === 'skipped'
+						? t('testSkipped')
+						: status === 'disabled'
+							? t('testWxDisabled')
+							: status === 'no-token'
+								? t('testWxNoToken')
+								: status === 'no-receiver'
+									? t('testWxNoReceiver')
+									: status === 'failed'
+										? t('testWxFailed', { message: payload.wxpusher?.message ?? '' })
+										: t('testWxError', { message: payload.wxpusher?.message ?? '' });
+			if (result.channel === 'wxpusher') return wxLine;
+			if (result.channel === 'browser') return browserLine;
 			return `${browserLine} · ${wxLine}`;
 		}
 
