@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Notifications",
+    "description": "Pushes WxPusher messages and real browser notifications when a session stops, exits with an error, or asks you a question."
+  }
+}

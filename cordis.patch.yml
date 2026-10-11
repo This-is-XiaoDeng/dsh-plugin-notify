@@ -1,0 +1,35 @@
+# dsh-plugin-notify bundle patch.
+#
+# One row: the Host half owns event detection, the WxPusher push and the
+# browser-notification stream the page subscribes to; the Client half
+# (declared by `dsh.client` in package.json) renders the settings page.
+#
+# Every field below is `volatile` in the plugin's Config schema, so editing it
+# from 设置 → 通知 applies live — no restart, no plugin remount.
+- insert:
+    - id: dsh-plugin-notify
+      name: dsh-plugin-notify
+      config:
+        enabled: true
+        events:
+          stopped: true
+          error: true
+          question: true
+          approval: false
+        browser:
+          enabled: true
+          sound: true
+          requireInteraction: true
+          onlyWhenHidden: true
+        wxpusher:
+          enabled: false
+          appToken: ''
+          uids: []
+          topicIds: []
+          url: ''
+        advanced:
+          stopDebounceMs: 1200
+          minRunMs: 2000
+          rootSessionsOnly: true
+          includeSessionTitle: true
+          maxDetailChars: 300
