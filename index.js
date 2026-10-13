@@ -151,6 +151,8 @@ export const Config = Schema.object({
 		rootSessionsOnly: Schema.boolean().default(true).description('仅根会话').volatile(),
 		/** Include the folded session title in the notification. */
 		includeSessionTitle: Schema.boolean().default(true).description('包含会话标题').volatile(),
+		/** Attach the last model reply to the stopped notification. */
+		includeLastModelMessage: Schema.boolean().default(true).description('停止时附带模型回复').volatile(),
 		/** Truncate the detail (error text, question text) to this many characters. */
 		maxDetailChars: Schema.number().default(300).description('详情截断长度').volatile(),
 	}),
@@ -244,6 +246,7 @@ export function apply(ctx, config) {
 				minRunMs: Math.max(0, Number(raw.advanced?.minRunMs) || 0),
 				rootSessionsOnly: raw.advanced?.rootSessionsOnly !== false,
 				includeSessionTitle: raw.advanced?.includeSessionTitle !== false,
+				includeLastModelMessage: raw.advanced?.includeLastModelMessage !== false,
 				maxDetailChars: Math.max(40, Number(raw.advanced?.maxDetailChars) || 300),
 			},
 		};
@@ -275,6 +278,40 @@ export function apply(ctx, config) {
 		return text.length > limit ? `${text.slice(0, limit - 1)}…` : text;
 	}
 
+	/** Normalize a detail text: unify line endings, trim the edges. */
+	function normalizeDetail(detail) {
+		return String(detail ?? '').replace(/\r\n?/g, '\n').trim();
+	}
+
+	/**
+	 * Collect the visible text of the session's last assistant message.
+	 *
+	 * Walks the derived message history backwards and returns the first
+	 * assistant message that carries `text` blocks, so a bare tool-call turn
+	 * still falls back to the model's last written reply. Returns '' when the
+	 * session is gone, has no assistant text yet, or the store rejects the read.
+	 */
+	function lastModelMessageText(sessionId) {
+		const session = sessionOf(sessionId);
+		if (session === undefined) return '';
+		try {
+			const messages = typeof session.deriveMessages === 'function' ? session.deriveMessages() : [];
+			for (let index = messages.length - 1; index >= 0; index--) {
+				const message = messages[index];
+				if (message?.role !== 'assistant') continue;
+				const text = (Array.isArray(message.content) ? message.content : [])
+					.filter((block) => block?.type === 'text' && typeof block.text === 'string')
+					.map((block) => block.text)
+					.join('\n')
+					.trim();
+				if (text !== '') return text;
+			}
+		} catch (error) {
+			ctx.logger.warn('dsh-plugin-notify: failed to read the last model message: %s', error?.message ?? error);
+		}
+		return '';
+	}
+
 	//#region delivery
 
 	/** Write one SSE frame to every subscribed page. */
@@ -296,18 +333,24 @@ export function apply(ctx, config) {
 	 * @param sessionId - Session the frame belongs to, or undefined for a test.
 	 * @param detail - Event detail text (error message, question, tool name).
 	 * @param overrides - Per-frame delivery overrides (used by the test frame).
+	 * @param options - `{ full?: boolean }` also carries the untruncated detail
+	 *   as `detailFull`, so the WxPusher channel can show the whole text (the
+	 *   last model reply, a question) instead of the `maxDetailChars` summary
+	 *   the browser notification uses.
 	 * @returns The frame to broadcast and push.
 	 */
-	function buildFrame(kind, sessionId, detail, overrides = {}) {
+	function buildFrame(kind, sessionId, detail, overrides = {}, options = {}) {
 		const current = settings();
 		const sessionTitle = sessionId !== undefined && current.advanced.includeSessionTitle ? titleOf(sessionId) : '';
+		const rawDetail = normalizeDetail(detail);
 		return {
 			id: ++seq,
 			kind,
 			time: Date.now(),
 			sessionId: sessionId === undefined ? null : String(sessionId),
 			sessionTitle,
-			detail: trimDetail(detail, current.advanced.maxDetailChars),
+			detail: trimDetail(rawDetail, current.advanced.maxDetailChars),
+			detailFull: options.full === true ? rawDetail : '',
 			tag: sessionId === undefined ? `dsh-notify-${kind}` : `dsh-notify-${String(sessionId)}`,
 			browser: {
 				...current.browser,
@@ -334,8 +377,11 @@ export function apply(ctx, config) {
 		if (channel.uids.length === 0 && channel.topicIds.length === 0) return { status: 'no-receiver' };
 		const label = WXPUSHER_LABEL[frame.kind] ?? frame.kind;
 		const heading = frame.sessionTitle ? `${label} · ${frame.sessionTitle}` : label;
-		const body = frame.detail
-			? `<p style="margin:0 0 8px;line-height:1.6">${escapeHtml(frame.detail)}</p>`
+		// `detailFull` carries the untruncated, line-preserving text (last model
+		// reply, question); fall back to the trimmed summary detail otherwise.
+		const detailText = typeof frame.detailFull === 'string' && frame.detailFull !== '' ? frame.detailFull : frame.detail;
+		const body = detailText
+			? `<div style="white-space:pre-wrap;margin:0 0 8px;line-height:1.6">${escapeHtml(detailText)}</div>`
 			: '';
 		const content = [
 			`<h3 style="margin:0 0 8px">${escapeHtml(heading)}</h3>`,
@@ -379,11 +425,13 @@ export function apply(ctx, config) {
 	 * @param kind - Notification kind.
 	 * @param sessionId - Session the notification belongs to.
 	 * @param detail - Event detail text.
+	 * @param options - Frame options, `{ full?: boolean }` keeps the WxPusher
+	 *   body untruncated.
 	 */
-	function notify(kind, sessionId, detail) {
+	function notify(kind, sessionId, detail, options = {}) {
 		const current = settings();
 		if (!current.enabled) return;
-		const frame = buildFrame(kind, sessionId, detail);
+		const frame = buildFrame(kind, sessionId, detail, {}, options);
 		if (current.browser.enabled) broadcast(frame);
 		if (current.wxpusher.enabled) void pushWxPusher(frame);
 	}
@@ -418,7 +466,11 @@ export function apply(ctx, config) {
 					// have just reported an error (that notification is more precise).
 					if (sessionOf(sessionId) === undefined) return;
 					if ((lastErrorAt.get(sessionId) ?? 0) + ERROR_DEDUPE_MS > Date.now()) return;
-					notify('stopped', sessionId, '');
+					// Carry the model's last reply: the reader wants to know what the
+					// session finished with without opening the page.
+					let detail = '';
+					if (current.advanced.includeLastModelMessage) detail = lastModelMessageText(sessionId);
+					notify('stopped', sessionId, detail, { full: true });
 				}, current.advanced.stopDebounceMs);
 				timer.unref?.();
 				stopTimers.set(sessionId, timer);
@@ -471,7 +523,9 @@ export function apply(ctx, config) {
 								: count > 1
 									? `${first.question} (+${count - 1})`
 									: first.question;
-							notify('question', sessionId, detail);
+							// The question text is what the reader must answer: keep it
+							// whole on WxPusher instead of the trimmed summary.
+							notify('question', sessionId, detail, { full: true });
 						}
 					}
 				} catch (error) {
@@ -549,7 +603,7 @@ export function apply(ctx, config) {
 		const frame = buildFrame('test', undefined, 'dsh-plugin-notify test notification', {
 			browser: { enabled: true, onlyWhenHidden: false },
 		});
-		const report = { ok: true, channel };
+		const report = { ok: true, channel, version: 2 };
 		if (channel !== 'wxpusher') {
 			if (current.browser.enabled) broadcast(frame);
 			report.browser = { delivered: current.browser.enabled && clients.size > 0, subscribers: clients.size };

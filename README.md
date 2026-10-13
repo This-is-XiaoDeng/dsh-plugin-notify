@@ -14,10 +14,12 @@ Session-state notifications for the [DeepSeek Harness](https://github.com/deepse
 
 | Event | Source | Detail shown |
 |---|---|---|
-| **Session stopped** | `api-session/status` → `running: false` | the folded session title |
+| **Session stopped** | `api-session/status` → `running: false` | the folded session title + **the last model reply** (optional) |
 | **Exited with an error** | `api-session/error`, `agent/error` | the error message |
 | **Question asked** | `user-questions/request` (observed, then delegated) | the first question |
 | **Approval needed** | `approval/request` (observed, then delegated) | the tool name |
+
+The WxPusher body for the **stopped detail** (the last model reply) and the **question text** is never truncated and keeps its line breaks, so the phone shows the whole content; browser notifications still trim to `maxDetailChars` (an OS notification cannot fit long text anyway).
 
 Two filters keep the noise down:
 
@@ -94,7 +96,8 @@ Open **Settings → Notifications** (设置 → 通知). The page writes straigh
 | `advanced.minRunMs` | `2000` | Runs shorter than this never notify. |
 | `advanced.rootSessionsOnly` | `true` | Skip subagent sessions. |
 | `advanced.includeSessionTitle` | `true` | Include the folded session title. |
-| `advanced.maxDetailChars` | `300` | Truncate error/question detail. |
+| `advanced.includeLastModelMessage` | `true` | Attach the last model reply to the stopped notification. |
+| `advanced.maxDetailChars` | `300` | Truncate error/question detail in browser notifications (WxPusher stopped details and questions are not truncated). |
 
 The same values live in the profile patch, so they survive upgrades:
 

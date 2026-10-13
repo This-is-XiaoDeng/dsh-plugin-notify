@@ -14,10 +14,12 @@
 
 | 事件 | 来源 | 通知里带的信息 |
 |---|---|---|
-| **会话停止** | `api-session/status` → `running: false` | 折叠出的会话标题 |
+| **会话停止** | `api-session/status` → `running: false` | 折叠出的会话标题 + **最后一条模型回复**（可关） |
 | **因错误退出** | `api-session/error`、`agent/error` | 错误信息 |
 | **收到提问** | `user-questions/request`（只观察，随后委派） | 第一个问题 |
 | **等待授权** | `approval/request`（只观察，随后委派） | 工具名 |
+
+WxPusher 推送里的**停止详情**（最后一条模型回复）和**提问内容**不做截断、保留换行——手机上能看到完整内容；浏览器通知仍按 `maxDetailChars` 截短（系统通知本身放不下长文）。
 
 两个过滤器用来降噪：
 
@@ -94,7 +96,8 @@ pnpm add dsh-plugin-notify
 | `advanced.minRunMs` | `2000` | 短于该时长的运行不通知。 |
 | `advanced.rootSessionsOnly` | `true` | 忽略子智能体会话。 |
 | `advanced.includeSessionTitle` | `true` | 通知里带上会话标题。 |
-| `advanced.maxDetailChars` | `300` | 错误/提问详情的截断长度。 |
+| `advanced.includeLastModelMessage` | `true` | 停止通知附带最后一条模型回复。 |
+| `advanced.maxDetailChars` | `300` | 浏览器通知里错误/提问详情的截断长度（WxPusher 的停止详情与提问不截断）。 |
 
 同样的值也存在于 profile patch 里，升级不会丢：
 
