@@ -37,12 +37,14 @@ WxPusher 推送里的**停止详情**（最后一条模型回复）和**提问�
 
 ## 安装
 
+> **npm 上已经有一个同名的包（另一个项目）**，`pnpm add dsh-plugin-notify` 装到的不是本插件。请用下面的仓库地址安装。
+
 ### 通过插件管理器（推荐）
 
-在「插件」页添加包：可以是 registry 包名、git 地址，或本地 checkout 的绝对路径，然后启用它带来的 bundle：
+在「插件」页添加包：填**仓库地址**或本地 checkout 的绝对路径，然后启用它带来的 bundle：
 
 ```
-dsh-plugin-notify
+github:This-is-XiaoDeng/dsh-plugin-notify
 ```
 
 或从克隆目录安装：
@@ -51,13 +53,19 @@ dsh-plugin-notify
 /path/to/dsh-plugin-notify
 ```
 
+命令行等价写法（把包写进 profile 的 `dependencies` 和 `dsh.profile.bundles`）：
+
+```bash
+dsh plugin --profile web add github:This-is-XiaoDeng/dsh-plugin-notify
+```
+
 插件行由 bundle 自带的 `cordis.patch.yml` 声明，不需要再改别的文件。如果 profile 已经在运行，重载（或重启）一次，让新包进入模块解析表。
 
 ### 手动装进 profile
 
 ```bash
 # 在 profile 目录里，例如 ~/.dsh/profiles/web
-pnpm add dsh-plugin-notify
+pnpm add github:This-is-XiaoDeng/dsh-plugin-notify
 ```
 
 再把这个 bundle 加进该 profile `package.json` 的 `dsh.profile.bundles`：

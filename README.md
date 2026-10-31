@@ -37,12 +37,14 @@ Two filters keep the noise down:
 
 ## Install
 
+> **A different project already owns `dsh-plugin-notify` on npm.** `pnpm add dsh-plugin-notify` installs that one, not this plugin — use the repository spec below.
+
 ### Through the plugin manager (recommended)
 
-Add the package spec to the Plugins page — a registry name, a git URL, or an absolute path to a checkout — and enable the bundle it adds:
+Add a package to the Plugins page — this **repository spec**, or an absolute path to a checkout — and enable the bundle it adds:
 
 ```
-dsh-plugin-notify
+github:This-is-XiaoDeng/dsh-plugin-notify
 ```
 
 or, from a clone:
@@ -51,13 +53,19 @@ or, from a clone:
 /path/to/dsh-plugin-notify
 ```
 
+The CLI equivalent (writes the package into the profile's `dependencies` and `dsh.profile.bundles`):
+
+```bash
+dsh plugin --profile web add github:This-is-XiaoDeng/dsh-plugin-notify
+```
+
 The plugin's row is declared by the bundle's own `cordis.patch.yml`, so nothing else needs editing. If the profile was already running, reload it (or restart) so the new package enters the module-resolution table.
 
 ### Manually, in a profile
 
 ```bash
 # in the profile directory, e.g. ~/.dsh/profiles/web
-pnpm add dsh-plugin-notify
+pnpm add github:This-is-XiaoDeng/dsh-plugin-notify
 ```
 
 Then add the bundle to `dsh.profile.bundles` in that profile's `package.json`:
